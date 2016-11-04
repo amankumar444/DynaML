@@ -78,6 +78,12 @@ class PerceptronActor extends Actor {
       log.info("Received value: "+data.hashCode())
       outgoingSynapses.foreach(_.fire(UnitSignal(Signal.F, actFunc(data))))
 
+    case BatchSignal(Signal.F, data) =>
+      log.info("Received Batch: "+data.hashCode())
+      outgoingSynapses.foreach(s => {
+        s.postSynapticNeuron ! data.map(actFunc).map(_*s.w)
+      })
+
     case UnitSignal(Signal.B, data) =>
       //Revise presynaptic weights
       //propogate delta backward
@@ -89,12 +95,6 @@ class PerceptronActor extends Actor {
       //propogate delta backward
       //TODO: Actual Implementation
       log.info("Received Back-propagated Batch: "+data.hashCode())
-
-    case BatchSignal(Signal.F, data) =>
-      log.info("Received Batch: "+data.hashCode())
-      outgoingSynapses.foreach(s => {
-        s.postSynapticNeuron ! data.map(actFunc).map(_*s.w)
-      })
 
     case _ => log.info("Received unknown message")
   }
@@ -124,20 +124,20 @@ class OutputActor(outerActor: ActorRef) extends PerceptronActor {
 }
 
 
-class PerceptronLayer(neurons: PerceptronActor*) {
+class PerceptronLayer(neurons: ML[PerceptronActor]) {
 
   def ->(otherLayer: PerceptronLayer): Unit = {}
 
 }
 
-class InputLayer(nodes: InputActor*) extends PerceptronLayer(nodes:_*)
-class OutputLayer(nodes: OutputActor*) extends PerceptronLayer(nodes:_*)
+class InputLayer(nodes: ML[PerceptronActor]) extends PerceptronLayer(nodes)
+class OutputLayer(nodes: ML[PerceptronActor]) extends PerceptronLayer(nodes)
 
 
 trait PerceptronNetwork {
 
-  val inputNodes: ML[InputActor]
+  val inputLayer: InputLayer
 
-  val outputNodes: ML[OutputActor]
+  val outputLayer: ML[OutputActor]
 
 }
