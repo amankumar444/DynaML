@@ -19,7 +19,7 @@ under the License.
 package io.github.mandar2812.dynaml.models.neuralnets
 
 import scala.collection.mutable.{MutableList => ML}
-import akka.actor.{Actor, ActorRef}
+import akka.actor.{Actor, ActorPath, ActorRef, ActorSystem, Props}
 import akka.event.Logging
 import io.github.mandar2812.dynaml.models.neuralnets.utils.{BatchSignal, Signal, UnitSignal}
 
@@ -28,10 +28,11 @@ import io.github.mandar2812.dynaml.models.neuralnets.utils.{BatchSignal, Signal,
   * Implements the neuron as an akka [[Actor]]
   *
   */
-class PerceptronActor extends Actor {
+class PerceptronActor(act: String = TransferFunctions.SIGMOID) extends Actor {
+
   val log = Logging(context.system, this)
 
-  var activation: String = TransferFunctions.SIGMOID
+  var activation: String = act
 
   private def actFunc: (Double) => Double = TransferFunctions.getActivation(activation)
 
@@ -40,6 +41,10 @@ class PerceptronActor extends Actor {
   protected val incomingSynapses: ML[Synapse.Incoming] = ML()
 
   protected val outgoingSynapses: ML[Synapse.Outgoing] = ML()
+
+  def ->(ne: ActorRef): Unit = {
+
+  }
 
   object Synapse {
 
@@ -67,7 +72,7 @@ class PerceptronActor extends Actor {
         case UnitSignal(Signal.F, data) =>
           postSynapticNeuron ! w*data
         case BatchSignal(Signal.F, data) =>
-          postSynapticNeuron ! data.map(actFunc).map(_*w)
+          postSynapticNeuron ! data.map(_*w)
       }
     }
   }
@@ -80,9 +85,7 @@ class PerceptronActor extends Actor {
 
     case BatchSignal(Signal.F, data) =>
       log.info("Received Batch: "+data.hashCode())
-      outgoingSynapses.foreach(s => {
-        s.postSynapticNeuron ! data.map(actFunc).map(_*s.w)
-      })
+      outgoingSynapses.foreach(_.fire(BatchSignal(Signal.F, data.map(actFunc))))
 
     case UnitSignal(Signal.B, data) =>
       //Revise presynaptic weights
@@ -124,20 +127,34 @@ class OutputActor(outerActor: ActorRef) extends PerceptronActor {
 }
 
 
-class PerceptronLayer(neurons: ML[PerceptronActor]) {
+class PerceptronLayer(neurons: ML[ActorRef]) {
 
   def ->(otherLayer: PerceptronLayer): Unit = {}
 
 }
 
-class InputLayer(nodes: ML[PerceptronActor]) extends PerceptronLayer(nodes)
-class OutputLayer(nodes: ML[PerceptronActor]) extends PerceptronLayer(nodes)
+class InputLayer(nodes: ML[ActorRef]) extends PerceptronLayer(nodes)
+class OutputLayer(nodes: ML[ActorRef]) extends PerceptronLayer(nodes)
 
 
-trait PerceptronNetwork {
+object PerceptronFactory {
+
+  val actorSys = ActorSystem.create("Neuron-System-Root")
+
+  def layer(activations: List[String]) = {
+    // Create a set of perceptron actors and enclose them
+    // in a layer
+    new PerceptronLayer(ML(activations:_*).map(ac => {
+      //Create a new Perceptron Actor
+      actorSys.actorOf(Props(classOf[PerceptronActor], ac))
+    }))
+  }
+}
+
+abstract class PerceptronNetwork {
 
   val inputLayer: InputLayer
 
-  val outputLayer: ML[OutputActor]
+  val outputLayer: OutputLayer
 
 }
